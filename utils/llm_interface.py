@@ -14,5 +14,4 @@ def generate_ai_response(query, context_text, llm_option="OpenAI-GPT4"):
         )
         return resp.choices[0].message.content.strip()
     else:
-        # ローカルLLMテスト用（簡易ダミー）
         return "【ローカルLLM仮説】ここにAI仮説が生成されます。"
