@@ -1,10 +1,9 @@
-# utils/rag_search.py
 import numpy as np
-import faiss
 import json
+import faiss
 from sentence_transformers import SentenceTransformer
 
-with open("1600_articles.json", "r", encoding="utf-8") as f:
+with open("articles.json", "r", encoding="utf-8") as f:
     documents = json.load(f)
 
 contents = [d["content"] for d in documents]
@@ -18,8 +17,7 @@ except FileNotFoundError:
     np.save("embeddings.npy", embeddings)
 
 dim = embeddings.shape[1]
-index = faiss.IndexHNSWFlat(dim, 32)
-index.hnsw.efConstruction = 200
+index = faiss.IndexFlatIP(dim)
 index.add(embeddings)
 
 def rag_search(query, top_k=5):
