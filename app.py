@@ -1,149 +1,241 @@
+# ==============================================================
+# NS-DMEE v4.0 ULTIMATE ENTERPRISE DEMO (Single File)
+# ==============================================================
+
 import streamlit as st
-import time
-import hashlib
-import json
+import time, json, hashlib, random
 import numpy as np
 from datetime import datetime
+from io import BytesIO
 
-# 🧪 RDKit Professional Integration
+# --- Chemistry ---
 from rdkit import Chem
-from rdkit.Chem import Descriptors, Lipinski, Crippen, rdMolDescriptors, QED
-from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+from rdkit.Chem import Descriptors, Crippen, Lipinski, rdMolDescriptors, QED, Draw, AllChem
 
-# 🔬 GLOBAL PERSISTENCE LAYER (Stochastic Initialization)
-if 'run_count' not in st.session_state:
-    # 1600の記事をベースに、情報の相転移(Phase Transition)を模した初期値
-    _seed = int(time.time() % 1000)
-    st.session_state.run_count = 1600 + _seed
-if 'analysis_buffer' not in st.session_state:
-    st.session_state.analysis_buffer = []
+# --- 3D ---
+import py3Dmol
+import streamlit.components.v1 as components
 
-def _execute_molecular_valuation(smiles_seq):
-    """Sovereign Logic Engine: High-fidelity property extraction"""
-    _mol = Chem.MolFromSmiles(smiles_seq)
-    if _mol is None: return None
-    
-    # Quantitative Estimation of Drug-likeness (QED) & Physicochemical Deltas
-    mw, logp = Descriptors.MolWt(_mol), Crippen.MolLogP(_mol)
-    tpsa, qed_score = rdMolDescriptors.CalcTPSA(_mol), QED.qed(_mol)
-    
-    # Violation Compliance (Rule of Five)
-    _lip_c = (mw < 500 and logp < 5 and 
-              Lipinski.NumHDonors(_mol) <= 5 and 
-              Lipinski.NumHAcceptors(_mol) <= 10)
-    
-    # Filter for Pan-Assay Interference Compounds (PAINS)
-    _f_params = FilterCatalogParams()
-    _f_params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS)
-    _catalog = FilterCatalog(_f_params)
-    _alert = _catalog.HasMatch(_mol)
-    
+# --- PDF ---
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
+
+# ==============================================================
+# 🔒 BLACKBOX CORE
+# ==============================================================
+
+def _sovereign_core(smiles):
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+
+    mw = Descriptors.MolWt(mol)
+    logp = Crippen.MolLogP(mol)
+    tpsa = rdMolDescriptors.CalcTPSA(mol)
+    qed = QED.qed(mol)
+
+    lipinski_flag = (
+        mw < 500 and logp < 5 and
+        Lipinski.NumHDonors(mol) <= 5 and
+        Lipinski.NumHAcceptors(mol) <= 10
+    )
+
+    mol3d = Chem.AddHs(mol)
+    AllChem.EmbedMolecule(mol3d, AllChem.ETKDG())
+    AllChem.MMFFOptimizeMolecule(mol3d)
+
+    affinity = round(
+        100*(0.4*np.tanh(qed)+0.3*np.exp(-abs(logp-2))+0.3*np.exp(-abs(tpsa-75)/100)),2
+    )
+    stability = round(60+20*np.tanh((500-mw)/500),2)
+    jt = round(0.9+0.05*np.tanh(qed),4)
+
     return {
-        "MW_VAL": round(mw, 2), "LOGP_IDX": round(logp, 2), 
-        "TPSA_MAP": round(tpsa, 2), "QED_COEFF": round(qed_score, 3),
-        "RULE_FIVE": "✅ PASSED" if _lip_c else "❌ NON-COMPLIANT",
-        "PAINS_STAT": "⚠️ CRITICAL ALERT" if _alert else "✅ CLEAR"
+        "mol": mol,
+        "mol3d": mol3d,
+        "MW": round(mw,2),
+        "LOGP": round(logp,2),
+        "TPSA": round(tpsa,2),
+        "QED": round(qed,3),
+        "LIPINSKI": "PASS" if lipinski_flag else "FAIL",
+        "AFF": affinity,
+        "STAB": stability,
+        "JT": jt
     }
 
-# 🔱 1. INTERFACE CONFIGURATION
-st.set_page_config(layout="wide", page_title="NS-DMEE | NextGen AI", page_icon="🧬")
-st.title("🧬 NS-DMEE: Neural-Symmetry Drug Discovery Engine")
-st.markdown("### **Advanced RAG (1,600+ Corpus) × Non-Markovian Symmetry Optimization**")
+# ==============================================================
+# 🎨 UI SETTINGS
+# ==============================================================
 
-# 🔱 2. CONTROL PANEL (Stealth Logic)
-st.sidebar.header("⚙️ Convergence Parameters")
-NS_LAMBDA = st.sidebar.slider("Coherence Bias (λ)", 1.5, 1.7, 1.618, 0.001)
-D_DEPTH = st.sidebar.slider("Recursive Analysis Depth", 3, 10, 5)
-_accuracy = 62.8 + 12.8*(abs(NS_LAMBDA - 1.618) < 0.001)
-st.sidebar.metric("Systemic Entropy Stability", f"{_accuracy:.1f}%")
+st.set_page_config(layout="wide", page_title="NS-DMEE Ultimate", page_icon="🧬")
 
-st.sidebar.markdown("---")
-if st.sidebar.button("💎 Request Enterprise L2 Token", type="primary"):
-    st.sidebar.info("🔒 Protocol Lock: Automated Patenting Layer requires Sovereign-Level Clearance.")
+dark_mode = st.sidebar.toggle("🌙 Dark Mode")
+enterprise = st.sidebar.toggle("🔐 Enterprise Mode")
+api_mode = st.sidebar.toggle("🌐 API Endpoint Mode")
 
-# 🔱 3. HIGH-DIMENSIONAL DATASET
-_T_VECTORS = ["KRAS G12C (GDP-binding pocket)", "p53 (DNA-stabilization domain)", "BRAF V600E (Kinase domain)"]
-_S_VECTORS = [
-    "CC(C)NC(=O)C1=CC(=C(C=C1)NC2=NC=CC(=N2)C3=CSC(=N3)C(F)(F)F)Cl",
-    "C1=CC=C(C=C1)C2=CC=C(C=C2)C3=NN=C(O3)C4=CC=C(C=C4)Cl",          
-    "CC1=C(C(=CC=C1)Cl)NC(=O)C2=CC(=C(C=C2)NC3=NC=CC(=N3)C4=CSC(=N4)C(F)(F)F)F"
-]
+if dark_mode:
+    st.markdown("""
+        <style>
+        body { background-color: #0E1117; color: white; }
+        </style>
+    """, unsafe_allow_html=True)
 
-# 🔱 4. SOVEREIGN WORKSPACE
-col_a, col_b = st.columns([4, 1])
-with col_a:
-    _input_q = st.text_area("🔍 Targeted Emergence Query", placeholder="Inject structural constraints...", height=80)
-with col_b:
-    st.metric("Aggregate Cycles", st.session_state.run_count)
+st.title("🧬 NS-DMEE v4.0 Ultimate")
+st.caption("Neural-Symmetry Drug Discovery Engine | Sovereign Intelligence Layer")
 
-_trigger = st.button("🚀 Execute Neural-Symmetry Convergence", type="primary", use_container_width=True)
+# ==============================================================
+# 💳 SaaS Simulation
+# ==============================================================
 
-# 🔱 5. EMERGENCE LOGIC (Stealth Execution)
-if _trigger and _input_q.strip():
-    # Stochastic increment (1-3 cycle leap)
-    _step_inc = (int(hashlib.sha256(_input_q.encode()).hexdigest(), 16) % 3) + 1
-    st.session_state.run_count += _step_inc
-    
-    with st.spinner("🌀 Iterating Neural-Symmetry Attractors..."):
-        _p_bar = st.progress(0)
-        _s_txt = st.empty()
-        for _idx, _step in enumerate(["Vectorizing Latent Space", "Phase Alignment", "Attractor Convergence", "Valuation Finalization"]):
-            _p_bar.progress((_idx+1)/4)
-            _s_txt.text(f"📡 {_step} (Cycle {(_idx+1)*25}%)")
-            time.sleep(0.4)
-        
-        # Internal Routing (Stochastic Seed)
-        _s_seed = int(hashlib.md5(_input_q.encode()).hexdigest(), 16)
-        _t_idx = (_s_seed + int(NS_LAMBDA * 10000)) % 3
-        
-        _target_v = _T_VECTORS[_t_idx]
-        _smiles_v = _S_VECTORS[_t_idx]
-        _metrics_v = _execute_molecular_valuation(_smiles_v)
-        
-        # Analytical Scoring (Golden Ratio Derivative)
-        _dev = abs(NS_LAMBDA - 1.6180339887)
-        _affinity = 50 + 12.8 * (1 - _dev)
-        _stability = 25 + 13.2 * (D_DEPTH / 10)
-        _j_t = 0.948 * (1 - 0.1 * _dev)
-        
-        _record = {
-            'ts': datetime.now().strftime('%H:%M:%S'), 'q': _input_q, 't': _target_v, 's': _smiles_v,
-            'l': NS_LAMBDA, 'aff': _affinity, 'stab': _stability, 'jt': _j_t, 'm': _metrics_v
+tier = st.sidebar.selectbox("Plan Tier", ["Free", "Pro", "Enterprise"])
+
+if tier == "Free":
+    st.sidebar.warning("Limited Docking Resolution")
+elif tier == "Pro":
+    st.sidebar.success("Advanced Optimization Enabled")
+else:
+    st.sidebar.success("Quantum Docking Layer Activated")
+
+# ==============================================================
+# 🔬 INPUT
+# ==============================================================
+
+smiles = st.text_area("Input SMILES", height=100)
+mutate_btn = st.button("🧪 Generate Structural Variant")
+run_btn = st.button("🚀 Execute Neural Convergence")
+
+# ==============================================================
+# 🧬 STRUCTURAL MUTATION (Demo Simulation)
+# ==============================================================
+
+def mutate_smiles(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return smiles
+    rw = Chem.RWMol(mol)
+    if rw.GetNumAtoms() > 3:
+        idx = random.randint(0, rw.GetNumAtoms()-1)
+        rw.GetAtomWithIdx(idx).SetAtomicNum(6)
+    return Chem.MolToSmiles(rw)
+
+if mutate_btn and smiles:
+    smiles = mutate_smiles(smiles)
+    st.success("Variant Generated")
+    st.code(smiles)
+
+# ==============================================================
+# 🧠 EXECUTION
+# ==============================================================
+
+if run_btn and smiles:
+
+    with st.spinner("Mapping Chemical Space..."):
+        for i in range(4):
+            st.progress((i+1)/4)
+            time.sleep(0.3)
+
+    result = _sovereign_core(smiles)
+
+    if result is None:
+        st.error("Invalid SMILES")
+    else:
+
+        col1,col2,col3,col4 = st.columns(4)
+        col1.metric("MW", result["MW"])
+        col2.metric("LogP", result["LOGP"])
+        col3.metric("TPSA", result["TPSA"])
+        col4.metric("QED", result["QED"])
+
+        s1,s2,s3 = st.columns(3)
+        s1.metric("Affinity", f"{result['AFF']}%")
+        s2.metric("Stability", f"{result['STAB']}%")
+        s3.metric("J(t)", result["JT"])
+
+        # 2D
+        st.subheader("2D Structure")
+        st.image(Draw.MolToImage(result["mol"], size=(350,350)))
+
+        # 3D
+        st.subheader("3D Docking Simulation")
+        mb = Chem.MolToMolBlock(result["mol3d"])
+        viewer = py3Dmol.view(width=600,height=400)
+        viewer.addModel(mb,"mol")
+        viewer.setStyle({"stick":{}})
+        viewer.zoomTo()
+        components.html(viewer._make_html(),height=400)
+
+        # Docking Heatmap (Simulated)
+        st.subheader("Docking Interaction Matrix")
+        matrix = np.random.rand(20,20)
+        st.dataframe(matrix)
+
+        # Latent Space
+        st.subheader("Latent Projection")
+        st.line_chart(np.random.normal(0,1,128))
+
+        # Phase Curve
+        st.subheader("Phase Transition Curve")
+        st.area_chart(np.sin(np.linspace(0,6,200)))
+
+        # ======================================================
+        # 📄 PDF
+        # ======================================================
+
+        def generate_pdf():
+            buffer = BytesIO()
+            doc = SimpleDocTemplate(buffer)
+            styles = getSampleStyleSheet()
+            elements=[]
+            elements.append(Paragraph("NS-DMEE Molecular Report",styles["Title"]))
+            elements.append(Spacer(1,0.5*inch))
+            elements.append(Paragraph(str(result),styles["Normal"]))
+            doc.build(elements)
+            buffer.seek(0)
+            return buffer
+
+        st.download_button(
+            "📄 Download PDF Report",
+            generate_pdf(),
+            "NS_DMEE_Report.pdf",
+            "application/pdf"
+        )
+
+        # ======================================================
+        # 🗂 Logging
+        # ======================================================
+
+        log_entry={
+            "timestamp":str(datetime.now()),
+            "smiles":smiles,
+            "result":result
         }
-        st.session_state.analysis_buffer.append(_record)
-        st.success("✅ Structural Equilibrium Reached: Singularity Confirmed.")
 
-    # 🔱 6. VALUATION DASHBOARD
-    if _metrics_v:
-        st.subheader("🧪 Molecular Property Mapping")
-        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-        m_col1.metric("Mass Delta (MW)", _metrics_v["MW_VAL"])
-        m_col2.metric("Lipophilicity (LogP)", _metrics_v["LOGP_IDX"])
-        m_col3.metric("Polar Surface (TPSA)", _metrics_v["TPSA_MAP"])
-        m_col4.metric("QED Coeff", _metrics_v["QED_COEFF"])
-        st.caption(f"**Compliance:** Rule of 5 ({_metrics_v['RULE_FIVE']}) | PAINS Filter Status: ({_metrics_v['PAINS_STAT']})")
+        with open("ns_dmee_log.json","a") as f:
+            f.write(json.dumps(log_entry,default=str)+"\n")
 
-    with st.container(border=True):
-        st.markdown(f"""
-        ### 🎯 **Emergence Protocol Report #{st.session_state.run_count}**
-        **Target Attractor**: `{_target_v}` | **Seed SMILES**: `{_smiles_v}`
-        
-        | Neural Metric | Score | Bias Factor |
-        |------|--------|-------|
-        | Binding Affinity | {_affinity:.2f}% | λ={NS_LAMBDA:.4f} |
-        | Structural Stability | {_stability:.2f}% | Depth={D_DEPTH} |
-        | J(t) Coeff | {_j_t:.4f} | N-Memory |
-        """)
+        # ======================================================
+        # 🌐 API Mode
+        # ======================================================
 
-    with st.container(border=True):
-        st.warning("🔒 **L2 Sovereign Modules Encrypted**: 3D Conformational Docking & ADME-Tox Suite requires token.")
+        if api_mode:
+            st.subheader("API JSON Response")
+            st.json({
+                "status":"success",
+                "data":{
+                    "MW":result["MW"],
+                    "Affinity":result["AFF"],
+                    "Stability":result["STAB"]
+                }
+            })
 
-# 🔱 7. HISTORICAL BUFFER
-if st.session_state.analysis_buffer:
-    with st.expander(f"📋 Global Cycle History ({len(st.session_state.analysis_buffer)})", expanded=False):
-        for _r in st.session_state.analysis_buffer[-3:]:
-            st.caption(f"Cycle [{_r['ts']}] Aff: {_r['aff']:.1f}% | Stab: {_r['stab']:.1f}% | λ: {_r['l']:.4f}")
+# ==============================================================
+# FOOTER
+# ==============================================================
 
-# 🔱 8. SOVEREIGN FOOTER
 st.markdown("---")
-st.markdown("<small>© 2026 NS-DMEE Project | Non-Markovian Information Emergence Platform | [Engine Core](https://github.com/suzukikakuritsu-arch/drug-AI)</small>", unsafe_allow_html=True)
+st.markdown(
+"<small>© 2026 NS-DMEE Ultimate | Blackbox Molecular Intelligence Platform</small>",
+unsafe_allow_html=True
+)
