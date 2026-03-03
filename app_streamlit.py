@@ -1,28 +1,30 @@
 # app_streamlit.py
 import streamlit as st
 import pandas as pd
-import requests
+from utils.rag_search import rag_search
+from utils.llm_interface import generate_ai_response
+from utils.pdf_export import export_pdf
 
-st.title("🔬 Suzuki創薬AI クラウドMVP (GPT-4対応)")
-st.write("文献1600件RAG + GPT仮説 + PDFレポート + ダッシュボード")
+st.title("🔬 Suzuki創薬AI クラウドMVP")
+st.write("文献1600件RAG + GPT仮説 + PDFレポート (GitHubだけで動作)")
 
 query = st.text_input("質問を入力してください:")
 llm_option = st.selectbox("使用するLLMを選択", ["OpenAI-GPT4", "ローカルLLM"])
 
 if st.button("実行") and query.strip():
-    response = requests.post("http://localhost:8000/query", json={"query": query, "llm_option": llm_option})
-    data = response.json()
-    
-    # 🔍 検索結果
-    df = pd.DataFrame(data["retrieved"])[["title","score"]]
+    # 1️⃣ RAG検索
+    retrieved = rag_search(query, top_k=5)
+    df = pd.DataFrame(retrieved)[["title","score"]]
     st.subheader("📚 検索結果 (Top 5)")
     st.dataframe(df)
     st.bar_chart(df.set_index('title')['score'])
     
-    # 🤖 AI仮説
-    st.subheader("GPT-4による創薬仮説")
-    st.write(data["ai_response"])
+    # 2️⃣ AI仮説生成
+    context_text = "\n".join([r["content"] for r in retrieved])
+    ai_response = generate_ai_response(query, context_text, llm_option)
+    st.subheader("🤖 AIによる創薬仮説")
+    st.write(ai_response)
     
-    # 📄 PDFダウンロード
-    pdf_file = data["pdf_file"]
+    # 3️⃣ PDF出力
+    pdf_file = export_pdf(query, retrieved, ai_response)
     st.download_button("📄 PDFレポートをダウンロード", data=open(pdf_file,"rb"), file_name=pdf_file)
