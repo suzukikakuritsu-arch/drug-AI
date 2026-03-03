@@ -4,14 +4,12 @@ import faiss
 import json
 from sentence_transformers import SentenceTransformer
 
-# サンプル記事ロード
 with open("1600_articles.json", "r", encoding="utf-8") as f:
     documents = json.load(f)
 
 contents = [d["content"] for d in documents]
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# 埋め込みロード / 生成
 try:
     embeddings = np.load("embeddings.npy")
 except FileNotFoundError:
@@ -19,7 +17,6 @@ except FileNotFoundError:
     embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
     np.save("embeddings.npy", embeddings)
 
-# FAISS HNSWインデックス
 dim = embeddings.shape[1]
 index = faiss.IndexHNSWFlat(dim, 32)
 index.hnsw.efConstruction = 200
