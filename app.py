@@ -52,3 +52,11 @@ CC(C)NC(=O)C1=CC(=C(C=C1)NC2=NC=CC(=N2)C3=CSC(=N3)C(F)(F)F)Cl
         st.markdown(result)
         st.download_button("📄 レポート保存", result, f"report_{int(time.time())}.md")
         st.success("✅ 解析完了！")
+
+# app.py末尾に追加で3パターン出力
+patterns = {
+    0: "KRAS G12C阻害剤",
+    1: "p53安定化分子", 
+    2: "BRAF V600E阻害剤"
+}
+target = patterns[hash(query) % 3]
