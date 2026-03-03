@@ -1,4 +1,3 @@
-# utils/pdf_export.py
 from fpdf import FPDF
 
 def export_pdf(query, retrieved, ai_response, filename="Suzuki_AI_Report.pdf"):
