@@ -1,3 +1,1 @@
-GitHub → requirements.txt → 鉛筆 → 以下で完全置き換え：
 streamlit>=1.38.0
-openai>=1.35.0
