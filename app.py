@@ -1,16 +1,17 @@
 # ==============================================================
-# NS-DMEE v4.0 ULTIMATE ENTERPRISE DEMO (Single File)
+# NS-DMEE v4.1 CLOUD SAFE EDITION
 # ==============================================================
 
 import streamlit as st
-import time, json, hashlib, random
+import time, json, random
 import numpy as np
 from datetime import datetime
 from io import BytesIO
 
-# --- Chemistry ---
+# --- RDKit SAFE IMPORT ---
 from rdkit import Chem
-from rdkit.Chem import Descriptors, Crippen, Lipinski, rdMolDescriptors, QED, Draw, AllChem
+from rdkit.Chem import Descriptors, Crippen, Lipinski, rdMolDescriptors, QED
+from rdkit.Chem import AllChem
 
 # --- 3D ---
 import py3Dmol
@@ -22,10 +23,10 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 
 # ==============================================================
-# 🔒 BLACKBOX CORE
+# SAFE CORE
 # ==============================================================
 
-def _sovereign_core(smiles):
+def sovereign_core(smiles):
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -42,19 +43,24 @@ def _sovereign_core(smiles):
         Lipinski.NumHAcceptors(mol) <= 10
     )
 
-    mol3d = Chem.AddHs(mol)
-    AllChem.EmbedMolecule(mol3d, AllChem.ETKDG())
-    AllChem.MMFFOptimizeMolecule(mol3d)
+    # 3D safely
+    try:
+        mol3d = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol3d, AllChem.ETKDG())
+        AllChem.MMFFOptimizeMolecule(mol3d)
+        molblock = Chem.MolToMolBlock(mol3d)
+    except:
+        molblock = None
 
     affinity = round(
         100*(0.4*np.tanh(qed)+0.3*np.exp(-abs(logp-2))+0.3*np.exp(-abs(tpsa-75)/100)),2
     )
+
     stability = round(60+20*np.tanh((500-mw)/500),2)
     jt = round(0.9+0.05*np.tanh(qed),4)
 
     return {
-        "mol": mol,
-        "mol3d": mol3d,
+        "molblock": molblock,
         "MW": round(mw,2),
         "LOGP": round(logp,2),
         "TPSA": round(tpsa,2),
@@ -66,77 +72,22 @@ def _sovereign_core(smiles):
     }
 
 # ==============================================================
-# 🎨 UI SETTINGS
+# UI
 # ==============================================================
 
-st.set_page_config(layout="wide", page_title="NS-DMEE Ultimate", page_icon="🧬")
+st.set_page_config(layout="wide", page_title="NS-DMEE Cloud Safe", page_icon="🧬")
 
-dark_mode = st.sidebar.toggle("🌙 Dark Mode")
-enterprise = st.sidebar.toggle("🔐 Enterprise Mode")
-api_mode = st.sidebar.toggle("🌐 API Endpoint Mode")
+st.title("🧬 NS-DMEE v4.1")
+st.caption("Cloud-Compatible Molecular Intelligence Demo")
 
-if dark_mode:
-    st.markdown("""
-        <style>
-        body { background-color: #0E1117; color: white; }
-        </style>
-    """, unsafe_allow_html=True)
+smiles = st.text_area("Input SMILES")
 
-st.title("🧬 NS-DMEE v4.0 Ultimate")
-st.caption("Neural-Symmetry Drug Discovery Engine | Sovereign Intelligence Layer")
+if st.button("🚀 Execute") and smiles:
 
-# ==============================================================
-# 💳 SaaS Simulation
-# ==============================================================
+    with st.spinner("Processing..."):
+        time.sleep(1)
 
-tier = st.sidebar.selectbox("Plan Tier", ["Free", "Pro", "Enterprise"])
-
-if tier == "Free":
-    st.sidebar.warning("Limited Docking Resolution")
-elif tier == "Pro":
-    st.sidebar.success("Advanced Optimization Enabled")
-else:
-    st.sidebar.success("Quantum Docking Layer Activated")
-
-# ==============================================================
-# 🔬 INPUT
-# ==============================================================
-
-smiles = st.text_area("Input SMILES", height=100)
-mutate_btn = st.button("🧪 Generate Structural Variant")
-run_btn = st.button("🚀 Execute Neural Convergence")
-
-# ==============================================================
-# 🧬 STRUCTURAL MUTATION (Demo Simulation)
-# ==============================================================
-
-def mutate_smiles(smiles):
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return smiles
-    rw = Chem.RWMol(mol)
-    if rw.GetNumAtoms() > 3:
-        idx = random.randint(0, rw.GetNumAtoms()-1)
-        rw.GetAtomWithIdx(idx).SetAtomicNum(6)
-    return Chem.MolToSmiles(rw)
-
-if mutate_btn and smiles:
-    smiles = mutate_smiles(smiles)
-    st.success("Variant Generated")
-    st.code(smiles)
-
-# ==============================================================
-# 🧠 EXECUTION
-# ==============================================================
-
-if run_btn and smiles:
-
-    with st.spinner("Mapping Chemical Space..."):
-        for i in range(4):
-            st.progress((i+1)/4)
-            time.sleep(0.3)
-
-    result = _sovereign_core(smiles)
+    result = sovereign_core(smiles)
 
     if result is None:
         st.error("Invalid SMILES")
@@ -153,42 +104,30 @@ if run_btn and smiles:
         s2.metric("Stability", f"{result['STAB']}%")
         s3.metric("J(t)", result["JT"])
 
-        # 2D
-        st.subheader("2D Structure")
-        st.image(Draw.MolToImage(result["mol"], size=(350,350)))
+        # 3D SAFE
+        if result["molblock"]:
+            st.subheader("3D Structure")
+            viewer = py3Dmol.view(width=600,height=400)
+            viewer.addModel(result["molblock"],"mol")
+            viewer.setStyle({"stick":{}})
+            viewer.zoomTo()
+            components.html(viewer._make_html(),height=400)
 
-        # 3D
-        st.subheader("3D Docking Simulation")
-        mb = Chem.MolToMolBlock(result["mol3d"])
-        viewer = py3Dmol.view(width=600,height=400)
-        viewer.addModel(mb,"mol")
-        viewer.setStyle({"stick":{}})
-        viewer.zoomTo()
-        components.html(viewer._make_html(),height=400)
-
-        # Docking Heatmap (Simulated)
-        st.subheader("Docking Interaction Matrix")
-        matrix = np.random.rand(20,20)
-        st.dataframe(matrix)
-
-        # Latent Space
+        # Latent
         st.subheader("Latent Projection")
         st.line_chart(np.random.normal(0,1,128))
 
-        # Phase Curve
-        st.subheader("Phase Transition Curve")
-        st.area_chart(np.sin(np.linspace(0,6,200)))
+        # Docking Matrix
+        st.subheader("Docking Interaction Matrix")
+        st.dataframe(np.random.rand(10,10))
 
-        # ======================================================
-        # 📄 PDF
-        # ======================================================
-
+        # PDF
         def generate_pdf():
             buffer = BytesIO()
             doc = SimpleDocTemplate(buffer)
             styles = getSampleStyleSheet()
             elements=[]
-            elements.append(Paragraph("NS-DMEE Molecular Report",styles["Title"]))
+            elements.append(Paragraph("NS-DMEE Report",styles["Title"]))
             elements.append(Spacer(1,0.5*inch))
             elements.append(Paragraph(str(result),styles["Normal"]))
             doc.build(elements)
@@ -196,46 +135,15 @@ if run_btn and smiles:
             return buffer
 
         st.download_button(
-            "📄 Download PDF Report",
+            "📄 Download PDF",
             generate_pdf(),
-            "NS_DMEE_Report.pdf",
+            "report.pdf",
             "application/pdf"
         )
 
-        # ======================================================
-        # 🗂 Logging
-        # ======================================================
-
-        log_entry={
-            "timestamp":str(datetime.now()),
-            "smiles":smiles,
-            "result":result
-        }
-
+        # Logging
         with open("ns_dmee_log.json","a") as f:
-            f.write(json.dumps(log_entry,default=str)+"\n")
-
-        # ======================================================
-        # 🌐 API Mode
-        # ======================================================
-
-        if api_mode:
-            st.subheader("API JSON Response")
-            st.json({
-                "status":"success",
-                "data":{
-                    "MW":result["MW"],
-                    "Affinity":result["AFF"],
-                    "Stability":result["STAB"]
-                }
-            })
-
-# ==============================================================
-# FOOTER
-# ==============================================================
+            f.write(json.dumps(result)+"\n")
 
 st.markdown("---")
-st.markdown(
-"<small>© 2026 NS-DMEE Ultimate | Blackbox Molecular Intelligence Platform</small>",
-unsafe_allow_html=True
-)
+st.markdown("<small>© 2026 NS-DMEE Cloud Safe Edition</small>",unsafe_allow_html=True)
