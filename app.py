@@ -154,3 +154,58 @@ Internal Demo - Advanced RAG (1,600+ Articles) is restricted to Enterprise. |
 [Repository](https://github.com/suzukikakuritsu-arch/drug-AI)
 </small>
 """)
+
+# 🔱 既存の app.py の解析ロジック部分に追加・統合
+
+from rdkit import Chem
+from rdkit.Chem import Descriptors, Lipinski, Crippen, rdMolDescriptors, QED
+from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+
+def get_molecular_metrics(smiles):
+    """パパ直伝の RDKit 解析エンジン"""
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None: return None
+    
+    # 物理化学的特性
+    mw = Descriptors.MolWt(mol)
+    logp = Crippen.MolLogP(mol)
+    tpsa = rdMolDescriptors.CalcTPSA(mol)
+    qed_score = QED.qed(mol)
+    
+    # リピンスキーの法則チェック
+    lipinski_pass = (mw < 500 and logp < 5 and Lipinski.NumHDonors(mol) <= 5 and Lipinski.NumHAcceptors(mol) <= 10)
+    
+    # リスク評価 (パパのヒューリスティック・モデル)
+    params = FilterCatalogParams()
+    params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS)
+    catalog = FilterCatalog(params)
+    pains_alert = catalog.HasMatch(mol)
+    
+    return {
+        "MW": round(mw, 2),
+        "LogP": round(logp, 2),
+        "TPSA": round(tpsa, 2),
+        "QED": round(qed_score, 3),
+        "Lipinski": "✅ Pass" if lipinski_pass else "❌ Fail",
+        "PAINS": "⚠️ Alert" if pains_alert else "✅ Clear"
+    }
+
+# --- UI表示部分 ---
+if run and query.strip():
+    # (中略：プログレスバーなどの演出)
+    
+    # パパのロジックで選択されたSMILESを解析
+    metrics = get_molecular_metrics(selected_smiles)
+    
+    if metrics:
+        st.subheader("🧪 Molecular Property Analysis")
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("Mol Weight", metrics["MW"])
+        col_m2.metric("LogP", metrics["LogP"])
+        col_m3.metric("TPSA", metrics["TPSA"])
+        col_m4.metric("QED Score", metrics["QED"])
+        
+        # 安全性・適合性表示
+        st.write(f"**Lipinski's Rule:** {metrics['Lipinski']} | **PAINS Filter:** {metrics['PAINS']}")
+
+    # (中略：解析結果のテキスト表示)
