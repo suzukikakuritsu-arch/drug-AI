@@ -1,7 +1,5 @@
-streamlit
-sentence-transformers
-faiss-cpu
-fpdf
-pandas
-numpy
-openai
+streamlit>=1.38.0
+pandas>=2.2.0
+openai>=1.35.0
+chromadb>=0.5.0
+reportlab>=4.2.0
