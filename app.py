@@ -1,56 +1,85 @@
 import streamlit as st
-import pandas as pd
+import openai
+import json
 
-# drug-AIのutilsモジュール（既に存在）
-from utils.rag_search import rag_search
-from utils.llm_interface import generate_ai_response
-from utils.pdf_export import export_pdf
+st.set_page_config(layout="wide", page_title="Suzuki創薬AI")
+st.title("🔬 **Suzuki創薬AI** - IPS理論創薬支援")
+st.markdown("### 鈴木悠起也理論 × GPT-4で即仮説生成")
 
-st.set_page_config(page_title="Suzuki創薬AI", layout="wide")
-st.title("🔬 **Suzuki創薬AI**")
-st.markdown("鈴木理論 × RAG × GPT-4 で創薬仮説を即生成")
+# OpenAI APIキー
+api_key = st.sidebar.text_input("🔑 OpenAI APIキー", type="password")
+if not api_key:
+    st.info("👈 サイドバーでOpenAI APIキーを入力")
+    st.stop()
 
-# サイドバー
-st.sidebar.header("設定")
-top_k = st.sidebar.slider("検索数", 3, 10, 5)
+openai.api_key = api_key
 
-# メイン入力
-query = st.text_input("🔍 創薬質問を入力（例：次世代抗がん剤設計）")
-if st.button("🚀 実行", type="primary") and query:
-    
-    with st.spinner("鈴木理論で解析中..."):
-        # 1. RAG検索
-        retrieved = rag_search(query, top_k=top_k)
+# 鈴木理論プロンプト
+query = st.text_area("🔍 創薬課題を入力", 
+                    placeholder="例：次世代抗がん剤設計の課題と解決策")
+llm_model = st.sidebar.selectbox("モデル", ["gpt-4", "gpt-3.5-turbo"])
+
+if st.button("🚀 **鈴木理論で解析**", type="primary"):
+    with st.spinner("IPS理論解析中..."):
+        prompt = f"""
+        あなたは鈴木悠起也博士（IPS情報創発理論創始者）です。
         
-        # 2. 結果表示
-        if retrieved:
-            df = pd.DataFrame(retrieved)[["title", "score"]]
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("📚 検索結果")
-                st.dataframe(df)
-            with col2:
-                st.subheader("📈 類似度")
-                st.bar_chart(df.set_index("title")["score"])
+        鈴木理論の3原則：
+        1. 非Markovian長期記憶（過去履歴全記憶）
+        2. 情報密度J(t)最大化  
+        3. 黄金比φ最適化（1.618）
+        
+        課題：{query}
+        
+        出力形式：
+        1. 課題分析（IPS理論視点）
+        2. 創薬ターゲット提案
+        3. 分子設計指針（SMILES推奨）
+        4. 鈴木理論適用根拠
+        """
+        
+        try:
+            response = openai.ChatCompletion.create(
+                model=llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2000
+            )
             
-            # 3. AI回答生成
-            context = "\n".join([r.get("content", "") for r in retrieved])
-            answer = generate_ai_response(query, context)
+            answer = response.choices[0].message.content
             
-            st.subheader("🎯 **鈴木創薬仮説**")
+            # 結果表示
+            st.subheader("🎯 **鈴木創薬解析結果**")
             st.markdown(answer)
             
-            # 4. PDFダウンロード
-            pdf_data = export_pdf(query, retrieved, answer)
-            st.download_button(
-                "📄 PDFレポート保存", 
-                pdf_data, 
-                f"suzuki_drug_report_{int(time.time())}.pdf"
-            )
-        else:
-            st.warning("関連文献が見つかりませんでした")
-    
-    st.success("✅ 解析完了！")
+            # PDFダウンロード
+            pdf_content = f"""
+# Suzuki創薬AI解析レポート
 
-st.markdown("---")
-st.caption("© 2026 Suzuki創薬AI. Powered by IPS理論")
+## 課題
+{query}
+
+## IPS理論解析
+{answer}
+
+---
+生成：Suzuki創薬AI v1.0 | {st.session_state.get('timestamp', '今日')}
+            """
+            
+            st.download_button(
+                "📄 PDF保存",
+                data=pdf_content.encode(),
+                file_name=f"suzuki_analysis_{int(time.time())}.txt",
+                mime="text/plain"
+            )
+            
+            st.session_state.last_result = answer
+            
+        except Exception as e:
+            st.error(f"エラー：{str(e)}")
+            st.info("APIキーの確認をお願いします")
+
+# 履歴
+if 'last_result' in st.session_state:
+    with st.expander("📋 前回の解析"):
+        st.markdown(st.session_state.last_result[:500] + "...")
