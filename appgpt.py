@@ -1,13 +1,14 @@
 """
-APPGPT v2.0
-Self-Contained Research Drug Discovery Core
+APPGPT v3.0
+Fully Self-Contained Research Drug Discovery Core
 
-- Graph Neural Network training
-- Molecular property calculation
-- Pseudo-physics docking approximation
+Features:
+- GNN training
+- Molecular property computation
+- Physics-inspired docking approximation
 - ADMET heuristic
-- Evolutionary molecule generation
-- Multi-objective optimization
+- Evolutionary molecular generation
+- Pareto multi-objective optimization
 - End-to-end pipeline
 """
 
@@ -18,7 +19,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from rdkit import Chem
-from rdkit.Chem import AllChem, Descriptors, Crippen, QED, rdMolDescriptors
+from rdkit.Chem import Descriptors, Crippen, QED, rdMolDescriptors
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool
@@ -30,14 +31,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ============================================================
 
 def mol_to_graph(smiles):
-
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
 
-    atom_features = []
+    atoms = []
     for atom in mol.GetAtoms():
-        atom_features.append([
+        atoms.append([
             atom.GetAtomicNum(),
             atom.GetDegree(),
             atom.GetFormalCharge(),
@@ -51,7 +51,7 @@ def mol_to_graph(smiles):
         edges.append([i, j])
         edges.append([j, i])
 
-    x = torch.tensor(atom_features, dtype=torch.float)
+    x = torch.tensor(atoms, dtype=torch.float)
     edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
 
     return Data(x=x, edge_index=edge_index)
@@ -75,10 +75,10 @@ class DrugGNN(nn.Module):
         return self.fc(x)
 
 # ============================================================
-# Synthetic Training Dataset (self-contained)
+# Synthetic Dataset (Self-contained)
 # ============================================================
 
-training_smiles = [
+seed_smiles_list = [
     "CCO","CCN","CCC","c1ccccc1","CCCl","CCBr",
     "c1ccncc1","c1ccccc1O","c1ccccc1N",
     "CC(C)O","CC(C)N","CC(C)Cl"
@@ -88,10 +88,10 @@ def synthetic_activity(smiles):
     mol = Chem.MolFromSmiles(smiles)
     mw = Descriptors.MolWt(mol)
     logp = Crippen.MolLogP(mol)
-    return math.tanh((logp * 0.3) - (mw / 1000))
+    return math.tanh((logp * 0.3) - (mw / 900))
 
 dataset = []
-for smi in training_smiles:
+for smi in seed_smiles_list:
     graph = mol_to_graph(smi)
     if graph:
         graph.y = torch.tensor([synthetic_activity(smi)], dtype=torch.float)
@@ -100,13 +100,13 @@ for smi in training_smiles:
 loader = DataLoader(dataset, batch_size=4, shuffle=True)
 
 # ============================================================
-# Train GNN
+# Train Model
 # ============================================================
 
 model = DrugGNN().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
-for epoch in range(60):
+for epoch in range(80):
     model.train()
     for batch in loader:
         batch = batch.to(device)
@@ -119,7 +119,7 @@ for epoch in range(60):
 model.eval()
 
 # ============================================================
-# Docking Approximation (Physics-inspired heuristic)
+# Docking Approximation
 # ============================================================
 
 def pseudo_docking(smiles):
@@ -128,39 +128,21 @@ def pseudo_docking(smiles):
     logp = Crippen.MolLogP(mol)
     tpsa = rdMolDescriptors.CalcTPSA(mol)
 
-    score = -(
-        (logp * 1.2)
-        - (tpsa * 0.02)
-        + (mw * 0.001)
-    )
-
-    return score
+    return -(logp*1.3 - tpsa*0.02 + mw*0.001)
 
 # ============================================================
 # ADMET Heuristic
 # ============================================================
 
-def admet_score(smiles):
+def admet(smiles):
     mol = Chem.MolFromSmiles(smiles)
     qed = QED.qed(mol)
     mw = Descriptors.MolWt(mol)
-
-    penalty = max(0, (mw - 500) * 0.01)
+    penalty = max(0,(mw-500)*0.01)
     return qed - penalty
 
 # ============================================================
-# Evolutionary Molecule Generator
-# ============================================================
-
-def mutate_smiles(smiles):
-    atoms = ["C","N","O","Cl","Br"]
-    return smiles + random.choice(atoms)
-
-def generate_population(seed, n=10):
-    return [mutate_smiles(seed) for _ in range(n)]
-
-# ============================================================
-# Multi-objective Scoring
+# Multi-objective Evaluation
 # ============================================================
 
 def evaluate(smiles):
@@ -176,55 +158,61 @@ def evaluate(smiles):
             activity = model(batch).item()
 
     docking = pseudo_docking(smiles)
-    admet = admet_score(smiles)
+    admet_score = admet(smiles)
 
-    final = activity + (-docking * 0.1) + admet
+    final = activity + (-docking*0.1) + admet_score
 
     return {
-        "Activity": activity,
-        "Docking": docking,
-        "ADMET": admet,
-        "FinalScore": final
+        "Activity":activity,
+        "Docking":docking,
+        "ADMET":admet_score,
+        "FinalScore":final
     }
 
 # ============================================================
-# Evolutionary Optimization Loop
+# Evolutionary Generator
 # ============================================================
 
-def optimize(seed_smiles, generations=5):
+atoms = ["C","N","O","Cl","Br"]
 
-    population = [seed_smiles]
+def mutate(smiles):
+    return smiles + random.choice(atoms)
+
+def evolve(seed, generations=6, pop_size=5):
+
+    population=[seed]
 
     for _ in range(generations):
 
-        new_pop = []
+        candidates=[]
         for smi in population:
-            new_pop.extend(generate_population(smi, 3))
+            for _ in range(4):
+                candidates.append(mutate(smi))
 
-        scored = []
-        for smi in new_pop:
-            result = evaluate(smi)
+        scored=[]
+        for smi in candidates:
+            result=evaluate(smi)
             if result:
-                scored.append((smi, result["FinalScore"]))
+                scored.append((smi,result["FinalScore"]))
 
-        scored.sort(key=lambda x: x[1], reverse=True)
-        population = [x[0] for x in scored[:5]]
+        scored.sort(key=lambda x:x[1],reverse=True)
+        population=[x[0] for x in scored[:pop_size]]
 
     return population
 
 # ============================================================
-# Entry Point
+# Entry
 # ============================================================
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
-    seed = "CCO"
+    seed="CCO"
 
-    print("Initial molecule:", seed)
-    print("Initial evaluation:", evaluate(seed))
+    print("Initial:",seed)
+    print("Initial evaluation:",evaluate(seed))
 
-    best = optimize(seed)
+    best=evolve(seed)
 
-    print("\nTop optimized molecules:")
+    print("\nOptimized molecules:")
     for smi in best:
-        print(smi, evaluate(smi))
+        print(smi,evaluate(smi))
