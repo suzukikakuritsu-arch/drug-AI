@@ -1,20 +1,19 @@
 """
-APPGPT v1.0
-Research-Grade Drug Discovery AI Core Architecture
+APPGPT v2.0
+Self-Contained Research Drug Discovery Core
 
-Layers:
-0 - Data
-1 - Molecular Graph Encoding
-2 - GNN Activity Model
-3 - Docking Interface (External)
-4 - Multi-Objective Optimization
-5 - Generative Stub
+- Graph Neural Network training
+- Molecular property calculation
+- Pseudo-physics docking approximation
+- ADMET heuristic
+- Evolutionary molecule generation
+- Multi-objective optimization
+- End-to-end pipeline
 """
 
-import os
-import subprocess
+import random
+import math
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,11 +23,13 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 # ============================================================
-# Layer 1 — Molecular Graph Encoding
+# Graph Encoding
 # ============================================================
 
-def mol_to_graph(smiles: str):
+def mol_to_graph(smiles):
 
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -43,28 +44,28 @@ def mol_to_graph(smiles: str):
             int(atom.GetIsAromatic())
         ])
 
-    edge_index = []
+    edges = []
     for bond in mol.GetBonds():
         i = bond.GetBeginAtomIdx()
         j = bond.GetEndAtomIdx()
-        edge_index.append([i, j])
-        edge_index.append([j, i])
+        edges.append([i, j])
+        edges.append([j, i])
 
     x = torch.tensor(atom_features, dtype=torch.float)
-    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
 
     return Data(x=x, edge_index=edge_index)
 
 # ============================================================
-# Layer 2 — GNN Activity Predictor
+# GNN Model
 # ============================================================
 
 class DrugGNN(nn.Module):
-    def __init__(self, in_channels=4, hidden_dim=128):
+    def __init__(self, in_dim=4, hidden=128):
         super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, hidden_dim)
-        self.fc = nn.Linear(hidden_dim, 1)
+        self.conv1 = GCNConv(in_dim, hidden)
+        self.conv2 = GCNConv(hidden, hidden)
+        self.fc = nn.Linear(hidden, 1)
 
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
@@ -74,131 +75,156 @@ class DrugGNN(nn.Module):
         return self.fc(x)
 
 # ============================================================
-# Layer 3 — Docking Interface (AutoDock Vina CLI)
+# Synthetic Training Dataset (self-contained)
 # ============================================================
 
-def run_docking(smiles: str, receptor_path: str):
+training_smiles = [
+    "CCO","CCN","CCC","c1ccccc1","CCCl","CCBr",
+    "c1ccncc1","c1ccccc1O","c1ccccc1N",
+    "CC(C)O","CC(C)N","CC(C)Cl"
+]
 
+def synthetic_activity(smiles):
     mol = Chem.MolFromSmiles(smiles)
-    mol = Chem.AddHs(mol)
-    AllChem.EmbedMolecule(mol)
-    AllChem.UFFOptimizeMolecule(mol)
+    mw = Descriptors.MolWt(mol)
+    logp = Crippen.MolLogP(mol)
+    return math.tanh((logp * 0.3) - (mw / 1000))
 
-    ligand_file = "ligand.pdbqt"
-    Chem.MolToPDBFile(mol, "ligand.pdb")
+dataset = []
+for smi in training_smiles:
+    graph = mol_to_graph(smi)
+    if graph:
+        graph.y = torch.tensor([synthetic_activity(smi)], dtype=torch.float)
+        dataset.append(graph)
 
-    # External conversion assumed (obabel or similar)
-    subprocess.call(["obabel", "ligand.pdb", "-O", ligand_file])
-
-    vina_cmd = [
-        "vina",
-        "--receptor", receptor_path,
-        "--ligand", ligand_file,
-        "--out", "out.pdbqt"
-    ]
-
-    subprocess.call(vina_cmd)
-
-    # Dummy parsing placeholder
-    docking_score = np.random.uniform(-12, -5)
-
-    return docking_score
+loader = DataLoader(dataset, batch_size=4, shuffle=True)
 
 # ============================================================
-# Layer 4 — ADMET / Drug-likeness
+# Train GNN
 # ============================================================
 
-def compute_properties(smiles: str):
+model = DrugGNN().to(device)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
+for epoch in range(60):
+    model.train()
+    for batch in loader:
+        batch = batch.to(device)
+        optimizer.zero_grad()
+        pred = model(batch).view(-1)
+        loss = F.mse_loss(pred, batch.y.view(-1))
+        loss.backward()
+        optimizer.step()
+
+model.eval()
+
+# ============================================================
+# Docking Approximation (Physics-inspired heuristic)
+# ============================================================
+
+def pseudo_docking(smiles):
     mol = Chem.MolFromSmiles(smiles)
+    mw = Descriptors.MolWt(mol)
+    logp = Crippen.MolLogP(mol)
+    tpsa = rdMolDescriptors.CalcTPSA(mol)
 
-    return {
-        "MW": Descriptors.MolWt(mol),
-        "LogP": Crippen.MolLogP(mol),
-        "TPSA": rdMolDescriptors.CalcTPSA(mol),
-        "QED": QED.qed(mol)
-    }
-
-# ============================================================
-# Layer 5 — Multi-Objective Scoring
-# ============================================================
-
-def multi_objective_score(activity, docking, properties):
-
-    score = (
-        activity
-        + (-docking * 0.1)
-        + properties["QED"] * 2
-        - max(0, properties["MW"] - 500) * 0.01
+    score = -(
+        (logp * 1.2)
+        - (tpsa * 0.02)
+        + (mw * 0.001)
     )
 
     return score
 
 # ============================================================
-# Generative Stub (Future Diffusion/RL hook)
+# ADMET Heuristic
 # ============================================================
 
-def generate_candidate(seed_smiles: str):
-    # Placeholder for VAE/Diffusion
-    return seed_smiles
+def admet_score(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    qed = QED.qed(mol)
+    mw = Descriptors.MolWt(mol)
+
+    penalty = max(0, (mw - 500) * 0.01)
+    return qed - penalty
 
 # ============================================================
-# Pipeline Execution
+# Evolutionary Molecule Generator
 # ============================================================
 
-class DrugDiscoveryPipeline:
+def mutate_smiles(smiles):
+    atoms = ["C","N","O","Cl","Br"]
+    return smiles + random.choice(atoms)
 
-    def __init__(self):
-        self.model = DrugGNN()
-        self.model.eval()
-
-    def predict_activity(self, smiles):
-
-        graph = mol_to_graph(smiles)
-        if graph is None:
-            return None
-
-        loader = DataLoader([graph], batch_size=1)
-        for batch in loader:
-            with torch.no_grad():
-                pred = self.model(batch)
-        return float(pred.item())
-
-    def run(self, smiles, receptor=None):
-
-        activity = self.predict_activity(smiles)
-
-        properties = compute_properties(smiles)
-
-        docking_score = None
-        if receptor:
-            docking_score = run_docking(smiles, receptor)
-        else:
-            docking_score = np.random.uniform(-10, -6)
-
-        final_score = multi_objective_score(
-            activity,
-            docking_score,
-            properties
-        )
-
-        return {
-            "ActivityPrediction": activity,
-            "DockingScore": docking_score,
-            "Properties": properties,
-            "FinalScore": final_score
-        }
+def generate_population(seed, n=10):
+    return [mutate_smiles(seed) for _ in range(n)]
 
 # ============================================================
-# CLI Entry
+# Multi-objective Scoring
+# ============================================================
+
+def evaluate(smiles):
+
+    graph = mol_to_graph(smiles)
+    if graph is None:
+        return None
+
+    loader = DataLoader([graph], batch_size=1)
+    for batch in loader:
+        batch = batch.to(device)
+        with torch.no_grad():
+            activity = model(batch).item()
+
+    docking = pseudo_docking(smiles)
+    admet = admet_score(smiles)
+
+    final = activity + (-docking * 0.1) + admet
+
+    return {
+        "Activity": activity,
+        "Docking": docking,
+        "ADMET": admet,
+        "FinalScore": final
+    }
+
+# ============================================================
+# Evolutionary Optimization Loop
+# ============================================================
+
+def optimize(seed_smiles, generations=5):
+
+    population = [seed_smiles]
+
+    for _ in range(generations):
+
+        new_pop = []
+        for smi in population:
+            new_pop.extend(generate_population(smi, 3))
+
+        scored = []
+        for smi in new_pop:
+            result = evaluate(smi)
+            if result:
+                scored.append((smi, result["FinalScore"]))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        population = [x[0] for x in scored[:5]]
+
+    return population
+
+# ============================================================
+# Entry Point
 # ============================================================
 
 if __name__ == "__main__":
 
-    pipeline = DrugDiscoveryPipeline()
+    seed = "CCO"
 
-    test_smiles = "CCOc1ccc2nc(S(N)(=O)=O)sc2c1"
-    result = pipeline.run(test_smiles)
+    print("Initial molecule:", seed)
+    print("Initial evaluation:", evaluate(seed))
 
-    print("=== Drug AI Result ===")
-    print(result)
+    best = optimize(seed)
+
+    print("\nTop optimized molecules:")
+    for smi in best:
+        print(smi, evaluate(smi))
